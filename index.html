@@ -1474,6 +1474,18 @@
     mostrarEtapaAuth("enroll");
   }
 
+  // ---------------------------------------------------------------------
+  // Nenhuma chamada de autenticação pode ficar esperando pra sempre sem
+  // dar nenhum sinal — se demorar demais (rede lenta, travamento do lado
+  // do servidor, etc.), isso força um erro claro em vez de silêncio total.
+  // ---------------------------------------------------------------------
+  function comTimeout(promessa, ms, mensagemTimeout) {
+    return Promise.race([
+      promessa,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(mensagemTimeout || "A operação demorou demais e foi cancelada. Tente de novo.")), ms))
+    ]);
+  }
+
   async function verificarSessaoInicial() {
     if (!supabaseClient) { mostrarEtapaAuth("login"); mostrarErroAuth("auth-login-erro", "Não foi possível carregar o cliente de autenticação."); return; }
     try {
@@ -1500,7 +1512,7 @@
     if (!supabaseClient) { mostrarErroAuth("auth-login-erro", "Cliente de autenticação indisponível."); return; }
     try {
       const email = usuario.includes("@") ? usuario : usuario + DOMINIO_EMAIL_LOGIN;
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
+      const { error } = await comTimeout(supabaseClient.auth.signInWithPassword({ email, password: senha }), 15000);
       if (error) { mostrarErroAuth("auth-login-erro", "Usuário ou senha incorretos."); return; }
       await verificarSessaoInicial();
     } catch (e) {
@@ -1515,9 +1527,9 @@
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
     if (!window.__mfaFactorIdEnroll) { mostrarErroAuth("auth-enroll-erro", "Sessão de configuração perdida. Feche e faça login de novo."); return; }
     try {
-      const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll });
+      const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll }), 15000);
       if (erroChallenge) { mostrarErroAuth("auth-enroll-erro", erroChallenge.message); return; }
-      const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorIdEnroll, challengeId: challenge.id, code: codigo });
+      const { error: erroVerify } = await comTimeout(supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorIdEnroll, challengeId: challenge.id, code: codigo }), 15000);
       if (erroVerify) { mostrarErroAuth("auth-enroll-erro", "Código incorreto: " + erroVerify.message); return; }
       await iniciarAppAutenticado();
     } catch (e) {
@@ -1532,9 +1544,9 @@
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
     if (!window.__mfaFactorId) { mostrarErroAuth("auth-verify-erro", "Sessão perdida. Feche e faça login de novo."); return; }
     try {
-      const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId });
+      const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId }), 15000);
       if (erroChallenge) { mostrarErroAuth("auth-verify-erro", erroChallenge.message); return; }
-      const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorId, challengeId: challenge.id, code: codigo });
+      const { error: erroVerify } = await comTimeout(supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorId, challengeId: challenge.id, code: codigo }), 15000);
       if (erroVerify) { mostrarErroAuth("auth-verify-erro", "Código incorreto: " + erroVerify.message); return; }
       await iniciarAppAutenticado();
     } catch (e) {
