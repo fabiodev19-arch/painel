@@ -1510,6 +1510,9 @@
     const senha = document.getElementById("auth-senha").value;
     if (!usuario || !senha) { mostrarErroAuth("auth-login-erro", "Preencha o nome de usuário e a senha."); return; }
     if (!supabaseClient) { mostrarErroAuth("auth-login-erro", "Cliente de autenticação indisponível."); return; }
+    const btn = document.getElementById("auth-btn-entrar");
+    if (btn.disabled) return; // ja tem uma tentativa em andamento -- ignora clique duplicado
+    btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Entrando…";
     try {
       const email = usuario.includes("@") ? usuario : usuario + DOMINIO_EMAIL_LOGIN;
       const { error } = await comTimeout(supabaseClient.auth.signInWithPassword({ email, password: senha }), 15000);
@@ -1517,6 +1520,8 @@
       await verificarSessaoInicial();
     } catch (e) {
       mostrarErroAuth("auth-login-erro", "Erro inesperado ao entrar: " + (e && e.message ? e.message : e));
+    } finally {
+      btn.disabled = false; btn.textContent = textoOriginal;
     }
   });
 
@@ -1526,6 +1531,9 @@
     const codigo = document.getElementById("auth-enroll-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
     if (!window.__mfaFactorIdEnroll) { mostrarErroAuth("auth-enroll-erro", "Sessão de configuração perdida. Feche e faça login de novo."); return; }
+    const btn = document.getElementById("auth-btn-confirmar-enroll");
+    if (btn.disabled) return;
+    btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Confirmando…";
     try {
       const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll }), 15000);
       if (erroChallenge) { mostrarErroAuth("auth-enroll-erro", erroChallenge.message); return; }
@@ -1534,6 +1542,8 @@
       await iniciarAppAutenticado();
     } catch (e) {
       mostrarErroAuth("auth-enroll-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
+    } finally {
+      btn.disabled = false; btn.textContent = textoOriginal;
     }
   });
 
@@ -1543,6 +1553,9 @@
     const codigo = document.getElementById("auth-verify-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
     if (!window.__mfaFactorId) { mostrarErroAuth("auth-verify-erro", "Sessão perdida. Feche e faça login de novo."); return; }
+    const btn = document.getElementById("auth-btn-confirmar-verify");
+    if (btn.disabled) return;
+    btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Confirmando…";
     try {
       const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId }), 15000);
       if (erroChallenge) { mostrarErroAuth("auth-verify-erro", erroChallenge.message); return; }
@@ -1551,6 +1564,8 @@
       await iniciarAppAutenticado();
     } catch (e) {
       mostrarErroAuth("auth-verify-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
+    } finally {
+      btn.disabled = false; btn.textContent = textoOriginal;
     }
   });
 
