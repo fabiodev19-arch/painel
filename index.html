@@ -1470,14 +1470,19 @@
 
   async function verificarSessaoInicial() {
     if (!supabaseClient) { mostrarEtapaAuth("login"); mostrarErroAuth("auth-login-erro", "Não foi possível carregar o cliente de autenticação."); return; }
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) { mostrarEtapaAuth("login"); return; }
-    const { data: aal } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aal && aal.currentLevel === "aal2") { iniciarAppAutenticado(); return; }
-    const { data: factors } = await supabaseClient.auth.mfa.listFactors();
-    const totp = factors && factors.totp && factors.totp.find((f) => f.status === "verified");
-    if (totp) { window.__mfaFactorId = totp.id; mostrarEtapaAuth("verify"); }
-    else { await iniciarEnrollMfa(); }
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) { mostrarEtapaAuth("login"); return; }
+      const { data: aal } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal && aal.currentLevel === "aal2") { await iniciarAppAutenticado(); return; }
+      const { data: factors } = await supabaseClient.auth.mfa.listFactors();
+      const totp = factors && factors.totp && factors.totp.find((f) => f.status === "verified");
+      if (totp) { window.__mfaFactorId = totp.id; mostrarEtapaAuth("verify"); }
+      else { await iniciarEnrollMfa(); }
+    } catch (e) {
+      mostrarEtapaAuth("login");
+      mostrarErroAuth("auth-login-erro", "Erro inesperado ao verificar a sessão: " + (e && e.message ? e.message : e));
+    }
   }
 
   document.getElementById("auth-btn-entrar").addEventListener("click", async () => {
@@ -1486,32 +1491,46 @@
     const senha = document.getElementById("auth-senha").value;
     if (!usuario || !senha) { mostrarErroAuth("auth-login-erro", "Preencha o nome de usuário e a senha."); return; }
     if (!supabaseClient) { mostrarErroAuth("auth-login-erro", "Cliente de autenticação indisponível."); return; }
-    const email = usuario.includes("@") ? usuario : usuario + DOMINIO_EMAIL_LOGIN;
-    const { error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
-    if (error) { mostrarErroAuth("auth-login-erro", "Usuário ou senha incorretos."); return; }
-    await verificarSessaoInicial();
+    try {
+      const email = usuario.includes("@") ? usuario : usuario + DOMINIO_EMAIL_LOGIN;
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
+      if (error) { mostrarErroAuth("auth-login-erro", "Usuário ou senha incorretos."); return; }
+      await verificarSessaoInicial();
+    } catch (e) {
+      mostrarErroAuth("auth-login-erro", "Erro inesperado ao entrar: " + (e && e.message ? e.message : e));
+    }
   });
 
   document.getElementById("auth-btn-confirmar-enroll").addEventListener("click", async () => {
     limparErroAuth("auth-enroll-erro");
     const codigo = document.getElementById("auth-enroll-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
-    const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll });
-    if (erroChallenge) { mostrarErroAuth("auth-enroll-erro", erroChallenge.message); return; }
-    const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorIdEnroll, challengeId: challenge.id, code: codigo });
-    if (erroVerify) { mostrarErroAuth("auth-enroll-erro", "Código incorreto. Tente novamente."); return; }
-    iniciarAppAutenticado();
+    if (!window.__mfaFactorIdEnroll) { mostrarErroAuth("auth-enroll-erro", "Sessão de configuração perdida. Feche e faça login de novo."); return; }
+    try {
+      const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll });
+      if (erroChallenge) { mostrarErroAuth("auth-enroll-erro", erroChallenge.message); return; }
+      const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorIdEnroll, challengeId: challenge.id, code: codigo });
+      if (erroVerify) { mostrarErroAuth("auth-enroll-erro", "Código incorreto: " + erroVerify.message); return; }
+      await iniciarAppAutenticado();
+    } catch (e) {
+      mostrarErroAuth("auth-enroll-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
+    }
   });
 
   document.getElementById("auth-btn-confirmar-verify").addEventListener("click", async () => {
     limparErroAuth("auth-verify-erro");
     const codigo = document.getElementById("auth-verify-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
-    const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId });
-    if (erroChallenge) { mostrarErroAuth("auth-verify-erro", erroChallenge.message); return; }
-    const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorId, challengeId: challenge.id, code: codigo });
-    if (erroVerify) { mostrarErroAuth("auth-verify-erro", "Código incorreto. Tente novamente."); return; }
-    iniciarAppAutenticado();
+    if (!window.__mfaFactorId) { mostrarErroAuth("auth-verify-erro", "Sessão perdida. Feche e faça login de novo."); return; }
+    try {
+      const { data: challenge, error: erroChallenge } = await supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId });
+      if (erroChallenge) { mostrarErroAuth("auth-verify-erro", erroChallenge.message); return; }
+      const { error: erroVerify } = await supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorId, challengeId: challenge.id, code: codigo });
+      if (erroVerify) { mostrarErroAuth("auth-verify-erro", "Código incorreto: " + erroVerify.message); return; }
+      await iniciarAppAutenticado();
+    } catch (e) {
+      mostrarErroAuth("auth-verify-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
+    }
   });
 
   verificarSessaoInicial();
