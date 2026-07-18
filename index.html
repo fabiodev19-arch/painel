@@ -273,6 +273,7 @@
   .bd-auth-secret-label { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
   .bd-auth-secret { font-family: var(--mono, monospace); font-size: 13px; background: var(--surface-2); padding: 8px 10px; border-radius: var(--radius-sm); word-break: break-all; margin-bottom: 6px; }
   .bd-user-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-secondary); }
+  .bd-auth-debug { margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--border-strong); font-family: var(--mono, monospace); font-size: 10.5px; color: var(--text-muted); white-space: pre-wrap; max-height: 140px; overflow-y: auto; }
   .bd-btn-logout { font-family: var(--sans); font-size: 12.5px; color: var(--text-secondary); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 12px; cursor: pointer; }
   .bd-btn-logout:hover { color: var(--text); border-color: var(--forest-500); }
 
@@ -324,6 +325,7 @@
         <button type="submit" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-confirmar-verify">Confirmar</button>
       </form>
     </div>
+    <div class="bd-auth-debug" id="auth-debug"></div>
   </div>
 </div>
 
@@ -1443,26 +1445,33 @@
   }
 
   async function iniciarAppAutenticado() {
+    debugAuth("iniciarAppAutenticado: liberando o painel...");
     telaAuthWrapEl.hidden = true;
     appEl.hidden = false;
     adicionarBotaoLogout();
     update();
     syncPanelHeights();
+    debugAuth("iniciarAppAutenticado: buscando dados do banco...");
     await carregarDadosDoBanco();
     if (telaAtual === "painel") update(); else renderHistorico();
+    debugAuth("iniciarAppAutenticado: concluído.");
   }
 
   async function iniciarEnrollMfa() {
+    debugAuth("iniciarEnrollMfa: checando fatores pendentes de tentativas anteriores...");
     // Se uma tentativa anterior de configurar o 2FA foi abandonada antes de
     // confirmar o código, o Supabase deixou um fator "pendente" registrado.
     // Isso impede criar um novo com o mesmo nome -- então limpa antes.
     const { data: fatoresAtuais } = await supabaseClient.auth.mfa.listFactors();
     const pendentes = (fatoresAtuais && fatoresAtuais.totp) ? fatoresAtuais.totp.filter((f) => f.status !== "verified") : [];
+    debugAuth("iniciarEnrollMfa: " + pendentes.length + " fator(es) pendente(s) encontrado(s), limpando...");
     for (const f of pendentes) {
       await supabaseClient.auth.mfa.unenroll({ factorId: f.id });
     }
+    debugAuth("iniciarEnrollMfa: chamando enroll()...");
     const { data, error } = await supabaseClient.auth.mfa.enroll({ factorType: "totp", issuer: "Alltech Biomassa" });
-    if (error) { mostrarErroAuth("auth-login-erro", "Não foi possível iniciar a configuração de 2FA: " + error.message); mostrarEtapaAuth("login"); return; }
+    if (error) { debugAuth("iniciarEnrollMfa: ERRO no enroll(): " + error.message); mostrarErroAuth("auth-login-erro", "Não foi possível iniciar a configuração de 2FA: " + error.message); mostrarEtapaAuth("login"); return; }
+    debugAuth("iniciarEnrollMfa: enroll() OK, factorId=" + data.id);
     window.__mfaFactorIdEnroll = data.id;
     var qrWrapEl = document.getElementById("auth-qr-wrap");
     qrWrapEl.innerHTML = "";
@@ -1472,6 +1481,18 @@
     qrWrapEl.appendChild(imgQr);
     document.getElementById("auth-secret").textContent = data.totp.secret;
     mostrarEtapaAuth("enroll");
+  }
+
+  // ---------------------------------------------------------------------
+  // Painel de diagnóstico visível na tela — mostra passo a passo o que
+  // está acontecendo, sem precisar abrir console nem logs do Supabase.
+  // ---------------------------------------------------------------------
+  function debugAuth(msg) {
+    var el = document.getElementById("auth-debug");
+    if (!el) return;
+    var hora = new Date().toLocaleTimeString("pt-BR");
+    el.textContent += "[" + hora + "] " + msg + "\n";
+    el.scrollTop = el.scrollHeight;
   }
 
   // ---------------------------------------------------------------------
@@ -1487,17 +1508,22 @@
   }
 
   async function verificarSessaoInicial() {
-    if (!supabaseClient) { mostrarEtapaAuth("login"); mostrarErroAuth("auth-login-erro", "Não foi possível carregar o cliente de autenticação."); return; }
+    debugAuth("verificarSessaoInicial: iniciando...");
+    if (!supabaseClient) { debugAuth("verificarSessaoInicial: supabaseClient não existe!"); mostrarEtapaAuth("login"); mostrarErroAuth("auth-login-erro", "Não foi possível carregar o cliente de autenticação."); return; }
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
+      debugAuth("verificarSessaoInicial: getSession() -> sessão " + (session ? "existe" : "NÃO existe"));
       if (!session) { mostrarEtapaAuth("login"); return; }
       const { data: aal } = await supabaseClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      debugAuth("verificarSessaoInicial: nível atual = " + (aal ? aal.currentLevel : "?"));
       if (aal && aal.currentLevel === "aal2") { await iniciarAppAutenticado(); return; }
       const { data: factors } = await supabaseClient.auth.mfa.listFactors();
       const totp = factors && factors.totp && factors.totp.find((f) => f.status === "verified");
+      debugAuth("verificarSessaoInicial: fator verificado " + (totp ? ("encontrado (id=" + totp.id + ")") : "NÃO encontrado -- vai pro cadastro"));
       if (totp) { window.__mfaFactorId = totp.id; mostrarEtapaAuth("verify"); }
       else { await iniciarEnrollMfa(); }
     } catch (e) {
+      debugAuth("verificarSessaoInicial: EXCEÇÃO: " + (e && e.message ? e.message : e));
       mostrarEtapaAuth("login");
       mostrarErroAuth("auth-login-erro", "Erro inesperado ao verificar a sessão: " + (e && e.message ? e.message : e));
     }
@@ -1505,20 +1531,24 @@
 
   document.getElementById("auth-login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    debugAuth("=== submit do login disparou ===");
     limparErroAuth("auth-login-erro");
     const usuario = document.getElementById("auth-usuario").value.trim();
     const senha = document.getElementById("auth-senha").value;
     if (!usuario || !senha) { mostrarErroAuth("auth-login-erro", "Preencha o nome de usuário e a senha."); return; }
-    if (!supabaseClient) { mostrarErroAuth("auth-login-erro", "Cliente de autenticação indisponível."); return; }
+    if (!supabaseClient) { debugAuth("supabaseClient nao existe!"); mostrarErroAuth("auth-login-erro", "Cliente de autenticação indisponível."); return; }
     const btn = document.getElementById("auth-btn-entrar");
     if (btn.disabled) return; // ja tem uma tentativa em andamento -- ignora clique duplicado
     btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Entrando…";
     try {
       const email = usuario.includes("@") ? usuario : usuario + DOMINIO_EMAIL_LOGIN;
+      debugAuth("chamando signInWithPassword() para " + email + "...");
       const { error } = await comTimeout(supabaseClient.auth.signInWithPassword({ email, password: senha }), 15000);
+      debugAuth("signInWithPassword() voltou. erro=" + JSON.stringify(error));
       if (error) { mostrarErroAuth("auth-login-erro", "Usuário ou senha incorretos."); return; }
       await verificarSessaoInicial();
     } catch (e) {
+      debugAuth("EXCEÇÃO capturada: " + (e && e.stack ? e.stack : e));
       mostrarErroAuth("auth-login-erro", "Erro inesperado ao entrar: " + (e && e.message ? e.message : e));
     } finally {
       btn.disabled = false; btn.textContent = textoOriginal;
@@ -1527,20 +1557,28 @@
 
   document.getElementById("auth-enroll-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    debugAuth("=== submit do formulario de cadastro de 2FA disparou ===");
     limparErroAuth("auth-enroll-erro");
     const codigo = document.getElementById("auth-enroll-codigo").value.trim();
-    if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
-    if (!window.__mfaFactorIdEnroll) { mostrarErroAuth("auth-enroll-erro", "Sessão de configuração perdida. Feche e faça login de novo."); return; }
+    if (!/^\d{6}$/.test(codigo)) { debugAuth("codigo invalido: '" + codigo + "'"); mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
+    if (!window.__mfaFactorIdEnroll) { debugAuth("window.__mfaFactorIdEnroll esta vazio/perdido!"); mostrarErroAuth("auth-enroll-erro", "Sessão de configuração perdida. Feche e faça login de novo."); return; }
+    debugAuth("factorId=" + window.__mfaFactorIdEnroll + " codigo=" + codigo);
     const btn = document.getElementById("auth-btn-confirmar-enroll");
-    if (btn.disabled) return;
+    if (btn.disabled) { debugAuth("botao ja estava desabilitado, ignorando clique duplicado"); return; }
     btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Confirmando…";
     try {
+      debugAuth("chamando mfa.challenge()...");
       const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorIdEnroll }), 15000);
+      debugAuth("challenge() voltou. erro=" + JSON.stringify(erroChallenge) + " challengeId=" + (challenge ? challenge.id : "null"));
       if (erroChallenge) { mostrarErroAuth("auth-enroll-erro", erroChallenge.message); return; }
+      debugAuth("chamando mfa.verify()...");
       const { error: erroVerify } = await comTimeout(supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorIdEnroll, challengeId: challenge.id, code: codigo }), 15000);
+      debugAuth("verify() voltou. erro=" + JSON.stringify(erroVerify));
       if (erroVerify) { mostrarErroAuth("auth-enroll-erro", "Código incorreto: " + erroVerify.message); return; }
+      debugAuth("verify() OK -- chamando iniciarAppAutenticado()...");
       await iniciarAppAutenticado();
     } catch (e) {
+      debugAuth("EXCEÇÃO capturada: " + (e && e.stack ? e.stack : e));
       mostrarErroAuth("auth-enroll-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
     } finally {
       btn.disabled = false; btn.textContent = textoOriginal;
@@ -1549,20 +1587,28 @@
 
   document.getElementById("auth-verify-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    debugAuth("=== submit do formulario de verificacao disparou ===");
     limparErroAuth("auth-verify-erro");
     const codigo = document.getElementById("auth-verify-codigo").value.trim();
-    if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
-    if (!window.__mfaFactorId) { mostrarErroAuth("auth-verify-erro", "Sessão perdida. Feche e faça login de novo."); return; }
+    if (!/^\d{6}$/.test(codigo)) { debugAuth("codigo invalido (nao tem 6 digitos): '" + codigo + "'"); mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
+    if (!window.__mfaFactorId) { debugAuth("window.__mfaFactorId esta vazio/perdido!"); mostrarErroAuth("auth-verify-erro", "Sessão perdida. Feche e faça login de novo."); return; }
+    debugAuth("factorId=" + window.__mfaFactorId + " codigo=" + codigo);
     const btn = document.getElementById("auth-btn-confirmar-verify");
-    if (btn.disabled) return;
+    if (btn.disabled) { debugAuth("botao ja estava desabilitado, ignorando clique duplicado"); return; }
     btn.disabled = true; const textoOriginal = btn.textContent; btn.textContent = "Confirmando…";
     try {
+      debugAuth("chamando mfa.challenge()...");
       const { data: challenge, error: erroChallenge } = await comTimeout(supabaseClient.auth.mfa.challenge({ factorId: window.__mfaFactorId }), 15000);
+      debugAuth("challenge() voltou. erro=" + JSON.stringify(erroChallenge) + " challengeId=" + (challenge ? challenge.id : "null"));
       if (erroChallenge) { mostrarErroAuth("auth-verify-erro", erroChallenge.message); return; }
+      debugAuth("chamando mfa.verify()...");
       const { error: erroVerify } = await comTimeout(supabaseClient.auth.mfa.verify({ factorId: window.__mfaFactorId, challengeId: challenge.id, code: codigo }), 15000);
+      debugAuth("verify() voltou. erro=" + JSON.stringify(erroVerify));
       if (erroVerify) { mostrarErroAuth("auth-verify-erro", "Código incorreto: " + erroVerify.message); return; }
+      debugAuth("verify() OK -- chamando iniciarAppAutenticado()...");
       await iniciarAppAutenticado();
     } catch (e) {
+      debugAuth("EXCEÇÃO capturada: " + (e && e.stack ? e.stack : e));
       mostrarErroAuth("auth-verify-erro", "Erro inesperado ao confirmar: " + (e && e.message ? e.message : e));
     } finally {
       btn.disabled = false; btn.textContent = textoOriginal;
