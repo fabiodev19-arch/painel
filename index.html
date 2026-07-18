@@ -289,13 +289,15 @@
 
     <div id="auth-login">
       <h1 class="bd-auth-title">Entrar no painel</h1>
-      <label class="bd-auth-label">Nome de usuário</label>
-      <input type="text" id="auth-usuario" class="bd-auth-input" autocomplete="username" placeholder="jose.silva">
-      <div class="bd-auth-hint">Só o nome de usuário, sem @ nem domínio.</div>
-      <label class="bd-auth-label">Senha</label>
-      <input type="password" id="auth-senha" class="bd-auth-input" autocomplete="current-password">
-      <div class="bd-auth-erro" id="auth-login-erro" hidden></div>
-      <button type="button" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-entrar">Entrar</button>
+      <form id="auth-login-form">
+        <label class="bd-auth-label">Nome de usuário</label>
+        <input type="text" id="auth-usuario" class="bd-auth-input" autocomplete="username" placeholder="jose.silva">
+        <div class="bd-auth-hint">Só o nome de usuário, sem @ nem domínio.</div>
+        <label class="bd-auth-label">Senha</label>
+        <input type="password" id="auth-senha" class="bd-auth-input" autocomplete="current-password">
+        <div class="bd-auth-erro" id="auth-login-erro" hidden></div>
+        <button type="submit" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-entrar">Entrar</button>
+      </form>
     </div>
 
     <div id="auth-mfa-enroll" hidden>
@@ -304,19 +306,23 @@
       <div class="bd-auth-qr" id="auth-qr-wrap"></div>
       <p class="bd-auth-secret-label">Não consegue escanear? Digite manualmente:</p>
       <div class="bd-auth-secret" id="auth-secret"></div>
-      <label class="bd-auth-label">Código do app autenticador</label>
-      <input type="text" inputmode="numeric" maxlength="6" class="bd-auth-input bd-auth-code" id="auth-enroll-codigo" placeholder="000000">
-      <div class="bd-auth-erro" id="auth-enroll-erro" hidden></div>
-      <button type="button" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-confirmar-enroll">Confirmar e ativar</button>
+      <form id="auth-enroll-form">
+        <label class="bd-auth-label">Código do app autenticador</label>
+        <input type="text" inputmode="numeric" maxlength="6" class="bd-auth-input bd-auth-code" id="auth-enroll-codigo" placeholder="000000">
+        <div class="bd-auth-erro" id="auth-enroll-erro" hidden></div>
+        <button type="submit" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-confirmar-enroll">Confirmar e ativar</button>
+      </form>
     </div>
 
     <div id="auth-mfa-verify" hidden>
       <h1 class="bd-auth-title">Confirme seu acesso</h1>
       <p class="bd-auth-sub">Digite o código do seu app autenticador.</p>
-      <label class="bd-auth-label">Código de 6 dígitos</label>
-      <input type="text" inputmode="numeric" maxlength="6" class="bd-auth-input bd-auth-code" id="auth-verify-codigo" placeholder="000000">
-      <div class="bd-auth-erro" id="auth-verify-erro" hidden></div>
-      <button type="button" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-confirmar-verify">Confirmar</button>
+      <form id="auth-verify-form">
+        <label class="bd-auth-label">Código de 6 dígitos</label>
+        <input type="text" inputmode="numeric" maxlength="6" class="bd-auth-input bd-auth-code" id="auth-verify-codigo" placeholder="000000">
+        <div class="bd-auth-erro" id="auth-verify-erro" hidden></div>
+        <button type="submit" class="bd-btn bd-btn-primary bd-auth-btn" id="auth-btn-confirmar-verify">Confirmar</button>
+      </form>
     </div>
   </div>
 </div>
@@ -1485,7 +1491,8 @@
     }
   }
 
-  document.getElementById("auth-btn-entrar").addEventListener("click", async () => {
+  document.getElementById("auth-login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
     limparErroAuth("auth-login-erro");
     const usuario = document.getElementById("auth-usuario").value.trim();
     const senha = document.getElementById("auth-senha").value;
@@ -1501,7 +1508,8 @@
     }
   });
 
-  document.getElementById("auth-btn-confirmar-enroll").addEventListener("click", async () => {
+  document.getElementById("auth-enroll-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
     limparErroAuth("auth-enroll-erro");
     const codigo = document.getElementById("auth-enroll-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-enroll-erro", "Digite os 6 dígitos do código."); return; }
@@ -1517,7 +1525,8 @@
     }
   });
 
-  document.getElementById("auth-btn-confirmar-verify").addEventListener("click", async () => {
+  document.getElementById("auth-verify-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
     limparErroAuth("auth-verify-erro");
     const codigo = document.getElementById("auth-verify-codigo").value.trim();
     if (!/^\d{6}$/.test(codigo)) { mostrarErroAuth("auth-verify-erro", "Digite os 6 dígitos do código."); return; }
