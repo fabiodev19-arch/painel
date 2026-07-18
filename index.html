@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Painel de Prospecção — Biomassa Florestal</title>
+<link rel="manifest" href="./manifest-painel.json">
+<meta name="theme-color" content="#C55628">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-title" content="Painel Biomassa">
 <script>
   (function () {
     var saved = null;
@@ -1573,6 +1578,18 @@
 
   verificarSessaoInicial();
 })();
+</script>
+<script>
+  // Registra um Service Worker mínimo (sem cache nenhum) só pra habilitar
+  // a instalação do painel como app na área de trabalho. Falha silenciosa
+  // em file:// ou sem HTTPS é esperado e não quebra o resto do painel.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw-painel.js").catch(function (err) {
+        console.warn("Service worker não registrado (normal em file:// ou sem HTTPS):", err);
+      });
+    });
+  }
 </script>
 </body>
 </html>
