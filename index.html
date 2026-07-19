@@ -220,6 +220,9 @@
   .bd-sync-tag.rascunho { background: var(--surface-2); color: var(--text-muted); }
   .bd-row-btn { font-family: var(--sans); font-size: 12px; color: var(--text-secondary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 10px; cursor: pointer; }
   .bd-row-btn:hover { border-color: var(--forest-500); color: var(--text); }
+  .bd-row-actions { display: flex; gap: 6px; }
+  .bd-row-btn-excluir { color: var(--red-600, #b33f3f); }
+  .bd-row-btn-excluir:hover { border-color: var(--red-600, #b33f3f); color: var(--red-700, #7a2424); }
 
   /* modal (edição e detalhamento) */
   .bd-modal-overlay { position: fixed; inset: 0; background: rgba(15,13,10,0.5); display: flex; align-items: center; justify-content: center; z-index: 5000; padding: 24px; }
@@ -629,7 +632,7 @@
   let selectedId = 4;
 
   function uniqueValues(key) {
-    return Array.from(new Set(properties.map((p) => p[key]))).sort();
+    return Array.from(new Set(properties.map((p) => p[key]).filter((v) => v !== null && v !== undefined && v !== ""))).sort();
   }
   function fillSelect(select, values, allLabel) {
     select.innerHTML = "";
@@ -637,8 +640,9 @@
     optAll.value = "Todas"; optAll.textContent = allLabel;
     select.appendChild(optAll);
     values.forEach((v) => {
+      if (v === null || v === undefined) return;
       const opt = document.createElement("option");
-      opt.value = v; opt.textContent = v.replace("Prioridade ", "");
+      opt.value = v; opt.textContent = String(v).replace("Prioridade ", "");
       select.appendChild(opt);
     });
   }
@@ -1182,6 +1186,7 @@
         '</div>' +
         '<div class="bd-modal-foot">' +
           '<button type="button" class="bd-btn bd-btn-secondary" id="bd-det-fechar">Fechar</button>' +
+          '<button type="button" class="bd-btn" id="bd-det-excluir" style="background:var(--red-600,#b33f3f);color:#fff;border:1px solid var(--red-600,#b33f3f)">Excluir</button>' +
           '<button type="button" class="bd-btn bd-btn-primary" id="bd-det-editar">Editar esta visita</button>' +
         '</div>' +
       '</div>';
@@ -1191,6 +1196,7 @@
     document.getElementById("bd-det-close").addEventListener("click", fechar);
     document.getElementById("bd-det-fechar").addEventListener("click", fechar);
     document.getElementById("bd-det-editar").addEventListener("click", () => { fechar(); abrirModalEdicao(p); });
+    document.getElementById("bd-det-excluir").addEventListener("click", () => { fechar(); confirmarExclusaoVisita(p); });
     carregarFotosDoModal(overlay);
   }
 
@@ -1216,6 +1222,61 @@
         slot.textContent = "Falha ao carregar foto";
       }
     }));
+  }
+
+  function confirmarExclusaoVisita(p) {
+    const overlay = document.createElement("div");
+    overlay.className = "bd-modal-overlay";
+    overlay.innerHTML =
+      '<div class="bd-modal" style="max-width:440px">' +
+        '<div class="bd-modal-head">' +
+          '<div><div class="bd-modal-title">Excluir visita</div>' +
+          '<div class="bd-modal-sub">' + p.nome_fazenda + ' · ' + (p.proprietario || "") + '</div></div>' +
+          '<button type="button" class="bd-modal-close" id="bd-excl-close">✕</button>' +
+        '</div>' +
+        '<div class="bd-modal-body">' +
+          '<p>Isso vai apagar permanentemente a visita, e também a propriedade e o proprietário associados (caso não estejam ligados a mais nenhuma outra visita), incluindo as fotos já enviadas. <strong>Essa ação não pode ser desfeita.</strong></p>' +
+        '</div>' +
+        '<div class="bd-modal-foot">' +
+          '<button type="button" class="bd-btn bd-btn-secondary" id="bd-excl-cancelar">Cancelar</button>' +
+          '<button type="button" class="bd-btn" id="bd-excl-confirmar" style="background:var(--red-600,#b33f3f);color:#fff;border:1px solid var(--red-600,#b33f3f)">Excluir definitivamente</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function fechar() { document.body.removeChild(overlay); }
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+    document.getElementById("bd-excl-close").addEventListener("click", fechar);
+    document.getElementById("bd-excl-cancelar").addEventListener("click", fechar);
+    document.getElementById("bd-excl-confirmar").addEventListener("click", async () => {
+      const btn = document.getElementById("bd-excl-confirmar");
+      btn.disabled = true; btn.textContent = "Excluindo…";
+      try {
+        await excluirVisita(p);
+        fechar();
+        mostrarToast("Visita excluída.");
+      } catch (e) {
+        btn.disabled = false; btn.textContent = "Excluir definitivamente";
+        mostrarToast("Erro ao excluir: " + (e && e.message ? e.message : e));
+      }
+    });
+  }
+
+  async function excluirVisita(p) {
+    if (!supabaseClient) throw new Error("Cliente de banco indisponível.");
+    // remove as fotos do bucket primeiro -- best-effort, nao trava a
+    // exclusao do registro se isso falhar por algum motivo
+    if (p.evidencias && p.evidencias.length) {
+      const paths = p.evidencias.map((ev) => ev.path).filter(Boolean);
+      if (paths.length) {
+        try { await supabaseClient.storage.from("evidencias").remove(paths); }
+        catch (e) { console.warn("Falha ao remover fotos do bucket:", e); }
+      }
+    }
+    const { error } = await comTimeout(supabaseClient.rpc("excluir_visita", { p_uuid_dispositivo: p.visita_id }), 15000);
+    if (error) throw new Error(error.message);
+    properties = properties.filter((x) => x.visita_id !== p.visita_id);
+    renderHistorico();
+    if (telaAtual === "painel") update();
   }
 
   function mostrarToast(msg) {
@@ -1269,8 +1330,9 @@
         '<td><span class="bd-badge ' + priorityTone(p) + '">' + priorityLabel(p) + '</span></td>' +
         '<td class="num"><strong>' + p.total + '</strong></td>' +
         '<td><span class="bd-sync-tag ' + (p.status_sincronizacao || "rascunho") + '">' + (p.status_sincronizacao === "sincronizado" ? "Sincronizado" : p.status_sincronizacao === "pendente" ? "Pendente" : "Rascunho") + '</span></td>' +
-        '<td><button type="button" class="bd-row-btn" data-id="' + p.visita_id + '">Editar</button></td>';
-      tr.querySelector(".bd-row-btn").addEventListener("click", (e) => { e.stopPropagation(); abrirModalEdicao(p); });
+        '<td class="bd-row-actions"><button type="button" class="bd-row-btn" data-id="' + p.visita_id + '">Editar</button><button type="button" class="bd-row-btn bd-row-btn-excluir" data-id="' + p.visita_id + '">Excluir</button></td>';
+      tr.querySelector(".bd-row-btn:not(.bd-row-btn-excluir)").addEventListener("click", (e) => { e.stopPropagation(); abrirModalEdicao(p); });
+      tr.querySelector(".bd-row-btn-excluir").addEventListener("click", (e) => { e.stopPropagation(); confirmarExclusaoVisita(p); });
       body.appendChild(tr);
     });
   }
