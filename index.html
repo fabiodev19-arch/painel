@@ -226,6 +226,10 @@
 
   /* modal (edição e detalhamento) */
   .bd-modal-overlay { position: fixed; inset: 0; background: rgba(15,13,10,0.5); display: flex; align-items: center; justify-content: center; z-index: 5000; padding: 24px; }
+  .bd-lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); display: flex; align-items: center; justify-content: center; z-index: 6000; padding: 32px; }
+  .bd-lightbox-img { max-width: 100%; max-height: 100%; border-radius: var(--radius-sm); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .bd-lightbox-close { position: absolute; top: 20px; right: 24px; width: 38px; height: 38px; border-radius: 99px; border: none; background: rgba(255,255,255,0.15); color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .bd-lightbox-close:hover { background: rgba(255,255,255,0.28); }
   .bd-modal { background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow); width: 100%; max-width: 920px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
   .bd-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .bd-modal-title { font-size: 17px; font-weight: 600; }
@@ -1202,6 +1206,25 @@
 
   // URL assinada expira sozinha depois de 1h — gerar de novo é só reabrir
   // o modal. O bucket é privado, então isso é a única forma de ver a foto.
+  function abrirLightboxFoto(url) {
+    const overlay = document.createElement("div");
+    overlay.className = "bd-lightbox-overlay";
+    const btnFechar = document.createElement("button");
+    btnFechar.type = "button"; btnFechar.className = "bd-lightbox-close"; btnFechar.setAttribute("aria-label", "Fechar"); btnFechar.textContent = "✕";
+    const img = document.createElement("img");
+    img.className = "bd-lightbox-img"; img.alt = "Evidência fotográfica ampliada"; img.src = url;
+    overlay.appendChild(btnFechar); overlay.appendChild(img);
+    document.body.appendChild(overlay);
+    function fechar() {
+      document.body.removeChild(overlay);
+      document.removeEventListener("keydown", aoTeclar);
+    }
+    function aoTeclar(e) { if (e.key === "Escape") fechar(); }
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+    btnFechar.addEventListener("click", fechar);
+    document.addEventListener("keydown", aoTeclar);
+  }
+
   async function carregarFotosDoModal(overlay) {
     if (!supabaseClient) return;
     const slots = Array.from(overlay.querySelectorAll(".bd-photo-slot-empty[data-path]"));
@@ -1209,17 +1232,25 @@
       const path = slot.getAttribute("data-path");
       try {
         const resp = await supabaseClient.storage.from("evidencias").createSignedUrl(path, 3600);
-        if (resp.error || !resp.data) { slot.textContent = "Falha ao carregar foto"; return; }
+        if (resp.error || !resp.data) {
+          const msg = resp.error ? resp.error.message : "resposta vazia";
+          console.warn("Falha ao gerar URL assinada para '" + path + "':", resp.error || resp);
+          slot.textContent = "Falha ao carregar foto";
+          slot.title = "Caminho: " + path + " — Erro: " + msg;
+          return;
+        }
         slot.style.backgroundImage = "url('" + resp.data.signedUrl + "')";
         slot.style.backgroundSize = "cover";
         slot.style.backgroundPosition = "center";
         slot.style.border = "1px solid var(--border)";
         slot.style.cursor = "pointer";
         slot.textContent = "";
-        slot.title = "Abrir em tamanho real";
-        slot.addEventListener("click", () => window.open(resp.data.signedUrl, "_blank"));
+        slot.title = "Ver em tamanho maior";
+        slot.addEventListener("click", () => abrirLightboxFoto(resp.data.signedUrl));
       } catch (e) {
+        console.warn("Exceção ao gerar URL assinada para '" + path + "':", e);
         slot.textContent = "Falha ao carregar foto";
+        slot.title = "Caminho: " + path + " — Erro: " + (e && e.message ? e.message : e);
       }
     }));
   }
